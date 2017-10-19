@@ -169,13 +169,19 @@ class VTAnalytics:
         return VTAnalytics(ai)
 
 
-    def __init__(self, df):
+    def __init__(self, df, space_bin=50, time_bin=10):
 
         assert '_spd' in df.columns
         assert '_acc' in df.columns 
 
         self.df = df
         self._calculateTimeStep() 
+
+        self.space_bin = space_bin
+        self.time_bin  = time_bin 
+        self.numLanes = self.df._lane.max() 
+        
+        self.recalculateMacroVars(space_bin, time_bin) 
 
     def __add__(self, other):
 
@@ -458,10 +464,12 @@ class VTAnalytics:
         ax.grid(b=True, which='major', color='white', lw=2)
         ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
     
-    def getFundamentalMacroscopicVars(self, space_bin, time_bin):
+    def recalculateMacroVars(self, space_bin, time_bin):
 
-        """time_bin in seconds 
-        space_bin in feet """
+        """Recalculates the macroscopic fundamental variables
+        time_bin in seconds 
+        space_bin in feet 
+        """
 
         self.df['_spacebin'] = np.array(self.df._locy // space_bin, np.int)
         self.df['_timebin'] = pd.to_datetime(((self.df._time.astype(np.int64) // 
@@ -479,8 +487,7 @@ class VTAnalytics:
                                          names=['_lane', '_spacebin', '_timebin'])
         mi = pd.DataFrame(index=mi)
         mi.reset_index(inplace=True)
-        #
-        #
+
         df_hm = df_hm.merge(mi, on=['_lane', '_spacebin', '_timebin'], how='right')
         df_hm = df_hm.set_index(['_lane', '_spacebin', '_timebin'])
 
@@ -492,7 +499,10 @@ class VTAnalytics:
         df_hm['density'] = df_hm['density'] * (5280 / space_bin) / (time_bin / time_step_in_sec)
         
 
-        return df_hm 
+        self.space_bin = space_bin
+        self.time_bin  = time_bin 
+
+        self.df_macro = df_hm 
 
     def plotVehicleTrajectories(self, fig, ax, veh_ids):
     
@@ -517,62 +527,78 @@ class VTAnalytics:
             
             ax.scatter(times, locations, c=point_colors, s=1)
 
+    def plotSpeedVsDensity(self, fig, ax, speed_step=5, color='blue', max_density=250, 
+             max_speed=70, show_bin_info=True, plot_mean=True):
 
+        points = ax.scatter(self.df_macro.density, self.df_macro.speed, 
+             s=1, color=color, label=None)
 
-    def plotSpeedVsDensity(self)
+        #set the limits of max density 
+        ax.set_xlim([0, max_density])
+        ax.set_ylim([0, max_speed])
 
-        ai_hm_mean = (ai_hm.groupby(ai_hm.density.values // 5 * 5)['speed'].aggregate([np.mean, np.size])
+        #plot the mean line 
+        speed_groups = self.df_macro.density.values // speed_step * speed_step
+
+        hm_mean = (self.df_macro.groupby(speed_groups)['speed'].aggregate([np.mean, np.size])
                       .reset_index()
                       .rename(columns={'index':'density', 'mean':'mean_speed'}))
 
+        #the mean line is plotted only where there are more than 100 points
+        if plot_mean:  
+            tmp = hm_mean[hm_mean['size'] > 100]
+            #tmp = hm_mean 
+            mean_line = ax.plot(tmp.density, tmp.mean_speed, c=color, label="mean speed")
 
-        fig, ax1 = plt.subplots(figsize=(15,10))
+        ax.legend(fontsize=16)
 
-        grey_points = ax1.scatter(ai_hm.density, ai_hm.speed, s=1, color='blue', label=None)
+        ax.set_ylabel("Speed (mph)", fontsize=18)
+        ax.set_xlabel('Density (vpm)', fontsize=18)
 
-        ax1.set_xlim([0,250])
-        tmp = ai_hm_mean[ai_hm_mean['size'] > 100]
-        mean_line = ax1.plot(tmp.density, tmp.mean_speed, c='blue', label="mean Model speed")
-        ax1.legend(fontsize=16)
-
-        ax1.legend(fontsize=16)
-
-        ax1.set_ylabel("Speed (mph)", fontsize=18)
-        ax1.set_xlabel('Density (vpm)', fontsize=18)
-
-        fig.text(0.85, 0.65, "SpaceBin:%dft\nTimeBin:%dsec" % (LCR_SPACE_BIN, LCR_TIME_BIN), fontsize=18)
+        if show_bin_info:
+            fig.text(0.85, 0.65, "SpaceBin:%dft\nTimeBin:%dsec" % (self.space_bin, self.time_bin), fontsize=18)
 
         fig.tight_layout()
 
-    def plotSpeedVsDensityByLane(self):
+    def plotSpeedVsDensityByLane(self, fig, dot_color='blue', mean_color='white', 
+                                   plot_mean=True, max_density=250, max_speed=70, 
+                                   pad=1.0, w_pad=0.5, h_pad=1.0, alpha=0.5):
 
-        fig = plt.figure(figsize=(15, 15), dpi=150)
 
-        gs = mpl.gridspec.GridSpec(4, 2)
 
-        for laneNum in range(1, 8):
+        numLanes = self.df._lane.max() 
+
+        numRows = numLanes // 2 + 1
+        gs = mpl.gridspec.GridSpec(numRows, 2)
+
+        axes = [] 
+
+        for laneNum in range(1, numLanes + 1):
             
             i = (laneNum - 1) // 2
             j = (laneNum - 1) % 2 
             
             ax = plt.subplot(gs[i,j])
+
+            axes.append(ax)
             
-            tmp = ai_hm.loc[laneNum]
+            tmp = self.df_macro.loc[laneNum]
             
-            
-            ax.scatter(tmp.density, tmp.speed, s=1.5, color='blue', label=None)
-            ax.set_xlim([0,250])
-            ax.set_ylim([0,65])
-            ax.set_title("Lane %d" % laneNum, fontsize=14)
+            ax.scatter(tmp.density, tmp.speed, s=1.5, color=dot_color, label=None, alpha=alpha)
+            ax.set_xlim([0, max_density])
+            ax.set_ylim([0, max_speed])
+            ax.set_title("Lane %d" % laneNum, fontsize=16)
             
             tmp_mean = (tmp.groupby(tmp.density.values // 5 * 5)['speed']
                               .aggregate([np.mean, np.size])
                               .reset_index()
                               .rename(columns={'index':'density', 'mean':'mean_spd'}))
             
-            tmp_mean = tmp_mean[tmp_mean['size'] > 50]
+            #if you wish to plot the mean when you have 50 or more points
+            #tmp_mean = tmp_mean[tmp_mean['size'] > 50]
             
-            ax.plot(tmp_mean.density, tmp_mean.mean_spd, c='blue', label='mean model speed')
+            if plot_mean: 
+                ax.plot(tmp_mean.density, tmp_mean.mean_spd, c=mean_color, label='mean speed')
             
             if j == 1:
                 ax.set_yticklabels([])
@@ -582,10 +608,10 @@ class VTAnalytics:
                 
             ax.legend(fontsize=18)
 
-        plt.subplot(gs[3,0]).set_xlabel("Density (vpm)", fontsize=18)
-        plt.subplot(gs[2,1]).set_xlabel("Density (vpm)", fontsize=18)
+        axes[-2].set_xlabel("Density (vpm)", fontsize=18)
+        axes[-1].set_xlabel("Density (vpm)", fontsize=18)
 
-        fig.tight_layout()
-        fig.text(0.72, 0.13, "SpaceBin:%dft\nTimeBin:%dsec" % (LCR_SPACE_BIN, LCR_TIME_BIN), fontsize=18)
-        #fig.savefig(os.path.join(OUT_FOLDER, "  density vs speed per lane.png"), dpi=150)
+        fig.tight_layout(pad=1.0, w_pad=0.5, h_pad=1.0)
+        fig.text(0.72, 0.13, "SpaceBin:%dft\nTimeBin:%dsec" % (self.space_bin, self.time_bin), fontsize=18)
+ 
 
