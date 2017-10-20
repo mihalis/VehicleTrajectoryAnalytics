@@ -19,6 +19,7 @@ import itertools                # functonal programming tools
 
 import matplotlib 
 
+import pdb 
 
 class VTAnalytics:
 
@@ -62,20 +63,28 @@ class VTAnalytics:
         """This function takes raw NGSIM data and prepares them for analysis
         """
         
+
         colNames = ['VehID', 'FrameID', 'TotalFrames', 'GlobalTime', 'locX', 'locY', 'globX', 
                     'globY', 'vehLength', 'vehWidth', 'vehClass', 'vehSpeed', 'vehAcceleration', 'lane', 
                    'precedingVeh', 'followingVeh', 'spacing', 'headway']
         
         ng = pd.read_csv(fName1, 
                          header=None, names=colNames, delim_whitespace=True)
-        
+
+        # define app specific variables 
+        ng['_spd']  = ng.vehSpeed * 3600 / 5280  # _spd in miles per hour 
+        ng['_acc']  = ng.vehAcceleration         # _acc is in feet per second squared 
+        ng['_locy'] = ng.locY  #location along the Y axis in feet 
+        ng['_vlen'] = ng.vehLength # vehicle length in feet  
+        ng['_lane'] = ng.lane 
+
         #create a datetime variable 
         result = [] 
         for t in ng.GlobalTime.values: 
             t = np.datetime64(int(t),'ms') - np.timedelta64(7,'h')
             result.append(t)
         ng['_time'] = result
-        
+
         #create a new vehicle id because the one defined in the
         #raw data is wrong 
         newVehID = (ng.groupby(['VehID', 'TotalFrames', 'vehLength'])['locY'].mean()
@@ -98,6 +107,8 @@ class VTAnalytics:
         # 0.1 seconds 
 
         ng = ng.sort_values(['_vid', '_time']) 
+        ng.index = np.arange(ng.shape[0])
+
         ng['_dt'] = ng._time.shift(-1) - ng._time
         #there are some records with dt greater than the 0.1 don't know why 
         ng.loc[ng._vid != ng._vid.shift(-1), '_dt'] = np.nan
@@ -106,6 +117,16 @@ class VTAnalytics:
             raise ValueError("The dataset has more than one timestep") 
 
         time_step = ng._dt.dropna().unique()[0]
+
+        #define lane changes 
+
+        ng['_leaveLane'] = 0
+        ng.loc[ng._lane != ng._lane.shift(-1), '_leaveLane'] = 1
+        ng.loc[ng._vid  != ng._vid.shift(-1), '_leaveLane'] = 0
+
+        ng['_enterLane'] = 0
+        ng.loc[ng._lane != ng._lane.shift(1), '_enterLane'] = 1
+        ng.loc[ng._vid  != ng._vid.shift(1), '_enterLane'] = 0
 
         #recalculate the preceding and following vehicle ids 
         ng = ng.sort_values(['lane', '_time', 'locY'], ascending=[True, True, True])
@@ -119,14 +140,6 @@ class VTAnalytics:
         ng.loc[ng.lane != ng.lane.shift(1), '_flV'] =  np.nan 
         ng.loc[ng._time != ng._time.shift(1), '_flV'] =  np.nan 
         
-        #
-        ng['_spd']  = ng.vehSpeed * 3600 / 5280  # _spd in miles per hour 
-        ng['_acc']  = ng.vehAcceleration         # _acc is in feet per second squared 
-        ng['_locy'] = ng.locY  #location along the Y axis in feet 
-        ng['_vlen'] = ng.vehLength # vehicle length in feet  
-        ng['_lane'] = ng.lane 
-        
-
         return VTAnalytics(ng)
 
 
@@ -134,8 +147,6 @@ class VTAnalytics:
     def readModelData(cls, fName1, start_time=None, end_time=None):
 
         ai = pd.read_hdf(fName1, 'trajectories')
-
-
 
         ai['_vid']  = np.array(ai.oid, np.int)
         ai['_time'] = ai.time
@@ -148,9 +159,20 @@ class VTAnalytics:
         if end_time:
             ai = ai[ai._time <= end_time]
 
+        #calculate the time step 
         ai = ai.sort_values(['_vid', '_time']) 
         ai['_dt'] = ai._time.shift(-1) - ai._time
         ai.loc[ai._vid != ai._vid.shift(-1), '_dt'] = np.nan
+
+        #calculate the lane change variables 
+        ai['_leaveLane'] = 0
+        ai.loc[ai._lane  != ai._lane.shift(-1), '_leaveLane'] = 1
+        ai.loc[ai._vid   != ai._vid.shift(-1), '_leaveLane'] = 0
+
+        ai['_enterLane'] = 0
+        ai.loc[ai._lane  != ai._lane.shift(1), '_enterLane'] = 1
+        ai.loc[ai._vid   != ai._vid.shift(1), '_enterLane'] = 0
+
 
         ai = ai.sort_values(['_lane', '_time', '_locy'], ascending=[True, True, True])
         ai.index = np.arange(ai.shape[0])
@@ -474,6 +496,9 @@ class VTAnalytics:
         self.df['_spacebin'] = np.array(self.df._locy // space_bin, np.int)
         self.df['_timebin'] = pd.to_datetime(((self.df._time.astype(np.int64) // 
                                          (time_bin * 1e9) ) * (time_bin * 1e9) ))
+
+        self.space_bin = space_bin
+        self.time_bin  = time_bin 
         
         df_hm = (self.df.groupby(['_lane', '_spacebin', '_timebin'])['_spd']
                           .aggregate([np.mean, np.size]))
@@ -494,15 +519,52 @@ class VTAnalytics:
 
         ### the simulation time step is 0.1 seconds this is why I am multiplying by 10 below 
         ##TODO change the 10 
+
         time_step_in_sec = self.time_step.astype(np.int64) / 1e9
 
         df_hm['density'] = df_hm['density'] * (5280 / space_bin) / (time_bin / time_step_in_sec)
         
 
+        self.df_macro = df_hm 
+
+        #self.recalculateLaneChangeRates(space_bin, time_bin)
+
+    def recalculateLaneChangeRates(self, space_bin, time_bin):
+
+        """Recalculates the lane change rates 
+        """
+        self.df['_spacebin'] = np.array(self.df._locy // space_bin, np.int)
+        self.df['_timebin'] = pd.to_datetime(((self.df._time.astype(np.int64) // 
+                                         (time_bin * 1e9) ) * (time_bin * 1e9) ))
+
         self.space_bin = space_bin
         self.time_bin  = time_bin 
 
-        self.df_macro = df_hm 
+        time_step_in_sec = self.time_step.astype(np.int64) / 1e9
+
+        laneChangeRates = (self.df.groupby(['_lane', '_spacebin', '_timebin'])['_leaveLane']
+                           .sum()
+                          )
+
+        laneChangeRates = laneChangeRates * (3600 / time_step_in_sec) * (5280 / self.space_bin) 
+
+        laneChangeRates = laneChangeRates.to_frame().reset_index()
+
+        mi = pd.MultiIndex.from_product([sorted(self.df._lane.unique()), 
+                                         sorted(self.df._spacebin.unique()), 
+                                         sorted(self.df._timebin.unique())], 
+                                         names=['_lane', '_spacebin', '_timebin'])
+
+        mi = pd.DataFrame(index=mi)
+        mi.reset_index(inplace=True)
+
+        laneChangeRates = laneChangeRates.merge(mi, on=['_lane', '_spacebin', '_timebin'], how='right')
+
+        laneChangeRates = laneChangeRates.set_index(['_lane', '_spacebin', '_timebin']).unstack()
+
+        self.df_lcr = laneChangeRates
+
+        #self.recalculateMacroVars(space_bin, time_bin)
 
     def plotVehicleTrajectories(self, fig, ax, veh_ids):
     
@@ -613,5 +675,15 @@ class VTAnalytics:
 
         fig.tight_layout(pad=1.0, w_pad=0.5, h_pad=1.0)
         fig.text(0.72, 0.13, "SpaceBin:%dft\nTimeBin:%dsec" % (self.space_bin, self.time_bin), fontsize=18)
+
+    def getNumOfLaneChangesPerLane(self):
+        """Returns a table with the number of lane changes
+        """ 
+
+        tmp = self.df.groupby('_lane')['_leaveLane'].sum().to_frame().reset_index()
+        tmp.rename(columns={'_leaveLane':"NumOfVehiclesLeavingLane"}, inplace=True)
+        tmp['NumOfVehiclesEnteringLane'] = self.df.groupby('_lane')['_enterLane'].sum().to_frame().reset_index()['_enterLane']
+        
+        return tmp 
  
 
