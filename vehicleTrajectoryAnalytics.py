@@ -524,10 +524,21 @@ class VTAnalytics:
 
         df_hm['density'] = df_hm['density'] * (5280 / space_bin) / (time_bin / time_step_in_sec)
         
+        leaveLaneChangeRates = (self.df.groupby(['_lane', '_spacebin', '_timebin'])['_leaveLane']
+                               .sum())
+        enterLaneChangeRates = (self.df.groupby(['_lane', '_spacebin', '_timebin'])['_enterLane']
+                               .sum())
+
+        leaveLaneChangeRates  = leaveLaneChangeRates * (3600 / time_bin) * (5280 / self.space_bin) 
+        enterLaneChangeRates  = enterLaneChangeRates * (3600 / time_bin) * (5280 / self.space_bin) 
+
+        leaveLaneChangeRates = leaveLaneChangeRates.to_frame().rename(columns={"_leaveLane":'numVehiclesLeavingLane'})
+        enterLaneChangeRates = enterLaneChangeRates.to_frame().rename(columns={"_enterLane":'numVehiclesEnteringLane'})       
+
+        df_hm['numVehiclesLeavingLane']  = leaveLaneChangeRates['numVehiclesLeavingLane']
+        df_hm['numVehiclesEnteringLane'] = enterLaneChangeRates['numVehiclesEnteringLane']
 
         self.df_macro = df_hm 
-
-        #self.recalculateLaneChangeRates(space_bin, time_bin)
 
     def recalculateLaneChangeRates(self, space_bin, time_bin):
 
@@ -546,7 +557,8 @@ class VTAnalytics:
                            .sum()
                           )
 
-        laneChangeRates = laneChangeRates * (3600 / time_step_in_sec) * (5280 / self.space_bin) 
+        laneChangeRates = laneChangeRates * (3600 / time_bin) * (5280 / self.space_bin) 
+
 
         laneChangeRates = laneChangeRates.to_frame().reset_index()
 
@@ -560,7 +572,7 @@ class VTAnalytics:
 
         laneChangeRates = laneChangeRates.merge(mi, on=['_lane', '_spacebin', '_timebin'], how='right')
 
-        laneChangeRates = laneChangeRates.set_index(['_lane', '_spacebin', '_timebin']).unstack()
+        #laneChangeRates = laneChangeRates.set_index(['_lane', '_spacebin', '_timebin']).unstack()
 
         self.df_lcr = laneChangeRates
 
@@ -600,6 +612,7 @@ class VTAnalytics:
         ax.set_ylim([0, max_speed])
 
         #plot the mean line 
+        assert speed_step > 0 
         speed_groups = self.df_macro.density.values // speed_step * speed_step
 
         hm_mean = (self.df_macro.groupby(speed_groups)['speed'].aggregate([np.mean, np.size])
@@ -686,4 +699,84 @@ class VTAnalytics:
         
         return tmp 
  
+    def plotLCR(self, fig, laneChangeType='leave', max_lcr=72000):
+        """lane changes can be either enter or exit 
+        """
+        gs = mpl.gridspec.GridSpec(2, 5, width_ratios=[0.2, 1, 1, 1, 1])
+
+        #set up teh colorscale 
+        numColors = 10
+        bounds = list(np.linspace(0, max_lcr, numColors))
+        bounds.insert(0, -10)
+        bounds[1] = 0.1
+
+        colors = ['grey', '#ffffcc','#ffeda0','#fed976','#feb24c',
+                 '#fd8d3c','#fc4e2a','#e31a1c','#bd0026','#800026']
+        cmap = mpl.colors.ListedColormap(colors) 
+        norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
+
+        cb = None 
+        ax = None
+
+        for i in range(1, self.numLanes + 1):
+            
+            j = (i-1) % 4
+            k = (i-1) // 4
+
+            ax = plt.subplot(gs[k,j+1])
+            
+            if laneChangeType == 'leave':
+                data = self.df_macro.loc[i]['numVehiclesLeavingLane'].unstack().values
+            elif laneChangeType == 'enter': 
+                data = self.df_macro.loc[i]['numVehiclesEnteringLane'].unstack().values
+            else:
+                raise ValueError("unknown lane change type")
+
+            nan_mask = np.isnan(data)
+            tmp = data.copy()
+            tmp[nan_mask] = -1
+          
+            cb = ax.imshow(tmp, cmap=cmap, norm=norm, origin='lower', aspect='auto')
+       
+            ax.set_xticklabels(['', '17:00', '05', '10', '15', ''])
+
+            ax.set_yticklabels([])
+            
+            ax.grid(True, color='black', ls='dashed', lw=0.3)
+            
+            ax.set_title("Lane %d" % i, fontsize=16)
+            
+        cmax = fig.add_axes([0.85, 0.15, 0.05, 0.3])
+
+        fig.colorbar(cb, cax=cmax, norm=norm, boundaries=bounds, ticks=bounds)
+        cmax.set_title("LCR colormap\n(lcvm)", fontsize=16)
+
+        cm_labels = ["%d" % i for i in list(map(int, bounds))]
+        cm_labels[0] = "" 
+        cmax.set_yticklabels(cm_labels, fontsize=16)
+
+        ax1 = plt.subplot(gs[0,0]) 
+        ax2 = plt.subplot(gs[1,0])
+
+        ytick_labels = [i for i in range(0,2000,200)]
+        ax1.set_yticks(ytick_labels)
+        ax1.set_yticklabels(ytick_labels, fontsize=16)
+        ax1.set_xticklabels([])
+        ax1.grid(False)
+        ax1.set_ylabel("Length in feet along I80 corridor", fontsize=16)
+        ax1.set_facecolor('white')
+
+        ax2.set_yticks(ytick_labels)
+        ax2.set_yticklabels(ytick_labels, fontsize=14)
+        ax2.set_xticklabels([])
+        ax2.grid(False)
+        ax2.set_ylabel("Length in feet along I80 corridor", fontsize=16)
+        ax2.set_facecolor('white')
+
+        fig.text(0.85, 0.05, "SpaceBin:%dft\nTimeBin:%dsec" % 
+                  (self.space_bin, self.time_bin), fontsize=16)
+
+        fig.text(0.908, 0.15, "No data", fontsize=16)
+
+
 
