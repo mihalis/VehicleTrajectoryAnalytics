@@ -60,7 +60,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'Vehicle Trajectory Analytics(VeTrAn)'
+project = 'Vehicle Trajectory Analytics'
 copyright = '2017, Michalis Xyntarakis'
 author = 'Michalis Xyntarakis'
 

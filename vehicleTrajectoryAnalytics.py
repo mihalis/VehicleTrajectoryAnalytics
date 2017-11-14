@@ -317,8 +317,59 @@ class VTAnalytics:
     def plotTrajectories(self, fig, ax, lane, start_time, 
                          end_time, start_dist, end_dist, point_size=0.5):
 
-        """
-        Plot the trectories for a specific lane and time period 
+        """This function plots all the vehicle trajectories for a given lane, start, and end time and for 
+        a particular section along the corridor identified by the start and end distance. 
+
+        For each vehicle that is present in the provided temporal and spatial window the 
+        function uses color-coded points to visualize successive vehicle positions. The 
+        points are color coded by the vehicle speed using a single color for a 10 mph 
+        interval.  
+
+        Args:
+           fig (matplotlib fibure):  The figure to draw the plot on
+           ax  (matplotlib ax):      The axes to draw the plot
+           lane (integer) : The lane number 
+           start_time (datetime): the begining of the selected time window 
+           end_time (datetime): the end of the selected time window
+           start_dist (feet): the start distance along the corridor. 
+           Vehicle positions before this threshold are not plotted. 
+           end_dist (feet): the maximum linear poisition along the corridor to visualize. 
+           Vehicle positions after this value will not be ploted.   
+
+        Kwargs:
+           point_size (float): The size of each point in pixels. The user can vary the size depending on canvas size and the number of points to visualized
+
+        Returns:
+           None
+
+        Raises:
+           AttributeError, KeyError
+
+        In the example code below the variables t1 and t2 hold the time thresholds. 
+        The dates correspond to valid times in the NGISM I-80 dataset.  
+        A figure, and axes canvas are obtaind in the third library by calling 
+        the appropate matplotlib function and by providing the selected figure size in inches.
+        The fourth line applies the function that produces the image shown below. 
+        All the trajectories in lane one  between t1, t2 and and between 0 and 
+        1800 from the corridor start will be visualized.  
+        
+        >>> t1 = np.datetime64('2005-04-13 17:00:00')
+        >>> t2 = np.datetime64('2005-04-13 17:30:00')
+        >>> fig, ax = plt.subplots(figsize=(15,10), dpi=150)
+        >>> plotTrajectories(fig, ax, lane=1, 
+                             start_time=t1, end_time=t2, 
+                             start_dist=0, end_dist=1800)
+        
+
+        .. figure::  _static/ngRe_traj_lane_2.png
+           :align:   center
+
+        The generated image can be saved by calling the savefig function. The image is 
+        saved in the png format using 150 dots per inch (dpi) 
+        
+        >>> output_file = "trajectories.png"
+        >>> fig.savefig(output_file, dpi=150)
+
         """
         
         #select the trajectories to plot based on inputs 
@@ -568,7 +619,10 @@ class VTAnalytics:
 
         #self.recalculateMacroVars(space_bin, time_bin)
 
-    def plotVehicleTrajectories(self, fig, ax, veh_ids):
+    def plotSelectedTrajectories(self, fig, ax, veh_ids):
+        """This function plots selected vehicle trajectories defined by 
+        a list of vehicle ids. Points in the plot are color-colded by speed. 
+        """
     
         #define the coloring scheme for the points 
         bounds = [0, 10, 20, 30, 40, 50, 60, 70, 80]
