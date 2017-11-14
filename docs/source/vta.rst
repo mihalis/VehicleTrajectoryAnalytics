@@ -1,12 +1,10 @@
 vehicle trajectory analytics package
 ====================================
 
-Submodules
-----------
 
-module one
-----------
+Documentation
+-------------
 
-.. automodule:: vehicleTrajectoryAnalytics
+.. automodule:: vehicleTrajectoryAnalytics (VeTrAn)
     :members:
     :undoc-members:

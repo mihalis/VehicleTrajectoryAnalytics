@@ -770,3 +770,9 @@ class VTAnalytics:
 
 
 
+
+#http://matplotlib.org/sampledoc/index.html
+#https://pythonhosted.org/an_example_pypi_project/sphinx.html#full-code-example
+#https://pythonhosted.org/an_example_pypi_project/pkgcode.html
+#http://www.sphinx-doc.org/en/stable/ext/autodoc.html
+

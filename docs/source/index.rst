@@ -12,41 +12,39 @@ Welcome to Vehicle trajectory Analytics's documentation!
 
    vta
 
-**OSMnx**: retrieve, construct, analyze, and visualize street networks from
-OpenStreetMap. OSMnx is a Python package that lets you download spatial
-geometries and construct, project, visualize, and analyze street networks from
-OpenStreetMap's APIs. Users can download and construct walkable, drivable,
-or bikable urban networks with a single line of Python code, and then easily
-analyze and visualize them.
+**Vehicle Trajectory Analytics**: analyze and visualize vehicle trajectories obtained from instrumented vehicles with GPS and radar devices. Vehicle Trajectory Analytics is a Python package that lets you calculate a number of trajectory-based measures related to safety, acceleration limits and driver comfort, traffic flow, and lane changing behavior. 
 
 
 Citation info
 -------------
 
-Boeing, G. 2017. "`OSMnx: New Methods for Acquiring, Constructing, Analyzing,
-and Visualizing Complex Street Networks`_." *Computers, Environment and Urban
-Systems* 65, 126-139. doi:10.1016/j.compenvurbsys.2017.05.004
+A Framework for Validating Traffic Simulation Models at the Vehicle Trajectory Level, February 2017, FHWA-JPO-16-405.
 
+
+.. figure::  _static/front_page.png
+   :align:   center
 
 Features
 --------
 
-OSMnx is built on top of geopandas, networkx, and matplotlib and works with
-OpenStreetMap's APIs to:
+Vehicle Trajectory Analytics is built on top of pandas and matplotlib and works with any vehicle trajectory dataset to calculate:
 
-  * Download street networks anywhere in the world with a single line of code
-  * Download other infrastructure network types, place polygons, or building footprints as well
-  * Download by city name, polygon, bounding box, or point/address + network distance
-  * Get drivable, walkable, bikable, or all street networks
-  * Visualize the street network as a static image or leaflet web map
-  * Simplify and correct the network's topology to clean and consolidate intersections
-  * Save networks to disk as shapefiles or GraphML
-  * Conduct topological and spatial analyses to automatically calculate dozens of indicators
-  * Calculate and plot shortest-path routes as a static image or leaflet web map
-  * Plot figure-ground diagrams of street networks and/or building footprints
-  * Download node elevations and calculate edge grades
-  * Visualize travel distance and travel time with isoline and isochrone maps
-  * Calculate and visualize street bearings and orientations
+
+  * gaps between vehicles 
+  * the preceding and following vehicle  
+  * lane position 
+  * lane changes per driver 
+  * distributions of speed, acceleration, jerk 
+  * time to colision by driver or the distribution of TTC values 
+  * lane change aggresiveness metrics on a case by case basis or the distribution of those metrics in the dataset 
+  * identify outliers in terms of acceleration, gap, or combinations of speed and acceleration
+  * driver comfort expressed by the acceleration root mean square metric 
+  * calculate flow, speed, and density from trajectory values 
+  * visualize trajectories in a space-time diagram 
+  * produce speed heatmaps based on trajectories 
+  * procuce lane change rate heatmap that shows lane changing activity along a corridor
+  * save the calculated metrics to a csv or excel file 
+  * save the visualizations into png or other image formats 
 
 Examples and demonstrations of these features are in the GitHub repo (see below).
 More feature development details are in the `change log`_.
@@ -55,25 +53,12 @@ More feature development details are in the `change log`_.
 Installation
 ------------
 
-Install OSMnx with pip:
+Install VehicleTrajectoryAnalytics with pip:
 
 .. code-block:: shell
 
-    pip install osmnx
+    pip install VeTrAn
 
-or with conda (easiest):
-
-.. code-block:: shell
-
-    conda install -c conda-forge osmnx
-
-If you have any trouble with the installation, try installing OSMnx in a new,
-clean `virtual environment`_:
-
-.. code-block:: shell
-
-    conda create --yes -c conda-forge -n OSMNX python=3 osmnx
-    source activate OSMNX
 
 
 Examples
@@ -85,7 +70,7 @@ For examples and demos, see the `examples`_ GitHub repo.
 Support
 -------
 
-The `issue tracker`_ is at the `OSMnx GitHub repo`_.
+The `issue tracker`_ is at the `VeTrAn GitHub repo`_.
 
 
 License
@@ -103,9 +88,7 @@ Indices and tables
 * :ref:`search`
 
 
-.. _change log: https://github.com/gboeing/osmnx/blob/master/CHANGELOG.md
-.. _virtual environment: https://conda.io/docs/using/envs.html
-.. _examples: https://github.com/gboeing/osmnx-examples
-.. _issue tracker: https://github.com/gboeing/osmnx/issues
-.. _OSMnx GitHub repo: https://github.com/gboeing/osmnx
-.. _OSMnx\: New Methods for Acquiring, Constructing, Analyzing, and Visualizing Complex Street Networks: http://geoffboeing.com/publications/osmnx-complex-street-networks/
+.. _change log: https://github.com/mihalis/VehicleTrajectoryAnalytics/CHANGELOG.md
+.. _examples: https://github.com/mihalis/VehicleTrajectoryAnalytics/examples
+.. _issue tracker: https://github.com/mihalis/VehicleTrajectoryAnalytics/issues
+.. _VeTrAn GitHub repo: https://github.com/mihalis/VehicleTrajectoryAnalytics
