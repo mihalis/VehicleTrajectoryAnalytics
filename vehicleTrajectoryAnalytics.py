@@ -3,21 +3,17 @@ import sys                      # system tools
 import numpy as np              # numerical computing with arrays 
 import pandas as pd             # dataframe as in R
 
+import matplotlib 
 import matplotlib.pyplot as plt # ploting 
 import matplotlib as mpl        # ploting 
 import seaborn as sns           # ploting 
 
 from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 
-sys.path.append(r"../code")
-import ccolors                  # colors from colorbrewer 
-
-import matplotlibCharts         # own library for composite charts
-
 import os                       # operating system io commands 
 import itertools                # functonal programming tools 
 
-import matplotlib 
+
 
 import pdb 
 
@@ -142,7 +138,6 @@ class VTAnalytics:
         
         return VTAnalytics(ng)
 
-
     @classmethod
     def readModelData(cls, fName1, start_time=None, end_time=None):
 
@@ -246,10 +241,8 @@ class VTAnalytics:
         
         return df1s 
 
-
     def plotJerkDistribution(self, df, ax):
-        
-        
+                
         bins = np.arange(np.floor(df._jerk.min()),
                          np.ceil(df._jerk.max()), 1)
         
@@ -268,7 +261,6 @@ class VTAnalytics:
         
         return np.histogram(df._spd, bins=bins) 
 
-
     def getJerkDistribution(self, df):
         
         bins_ = np.arange(np.floor(df._jerk.min()),
@@ -286,7 +278,6 @@ class VTAnalytics:
         
         return jerk_freq 
 
-
     def getARMSDistribution(self, speedbin=5):
         """Calculates ARMS for each speed bin"""
         result = [] 
@@ -301,7 +292,6 @@ class VTAnalytics:
         arms = pd.DataFrame(result, columns=['_spd', '_arms', 'n'])
         
         return arms 
-
 
     def plotARMS(self, df, ax):
     
