@@ -314,7 +314,7 @@ class VTAnalytics:
 
         return acc_freq 
 
-    def plotTrajectories(self, fig, ax, lane, start_time, 
+    def plotAllTrajectories(self, fig, ax, lane, start_time, 
                          end_time, start_dist, end_dist, point_size=0.5):
 
         """This function plots all the vehicle trajectories for a given lane, start, and end time and for 
