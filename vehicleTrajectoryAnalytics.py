@@ -219,7 +219,7 @@ class VTAnalytics:
     def calculateAccelerationJerk(self):
         """returns a new dataset with jerk values for a time step of 1 second"""
         
-        df = df.sort_values(['_vid', '_time'])
+        df = self.df.sort_values(['_vid', '_time'])
 
         result = [] 
         for VehId, group in df.groupby('_vid'):
@@ -240,6 +240,31 @@ class VTAnalytics:
         df1s = df1s.dropna()
         
         return df1s 
+
+    def resample(self, timeStep):
+        """returns a new dataset with resampled speed, acceleration, and location along 
+        the corridor based on the given time step"""
+        
+        df = self.df.sort_values(['_vid', '_time'])
+
+        result = [] 
+        for VehId, group in df.groupby('_vid'):
+
+            tmp2 = (group[['_time', '_acc', '_spd',  '_locy']]
+                   .set_index('_time')
+                   .resample('1s')
+                   .mean()
+                   .reset_index()
+                   )
+
+            tmp2['_vid'] = VehId
+            result.append(tmp2)
+
+        df1s = pd.concat(result)
+        df1s = df1s.dropna()
+        
+        return df1s 
+
 
     def plotJerkDistribution(self, df, ax):
                 
