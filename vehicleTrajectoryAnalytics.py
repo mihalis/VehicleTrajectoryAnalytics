@@ -13,9 +13,9 @@ from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 import os                       # operating system io commands 
 import itertools                # functonal programming tools 
 
-
-
 import pdb 
+
+#FIG_SIZE_X,FIG_SIZE_Y = 15, 10
 
 class VTAnalytics:
 
@@ -94,10 +94,11 @@ class VTAnalytics:
         ng = ng.merge(newVehID, on=['VehID', 'TotalFrames', 'vehLength'])
         
         #limit the dataset based on the input times 
+        #pdb.set_trace()
         if start_time: 
-            ng  = ng[(ng._time >= start_time)]
+            ng  = ng[(ng._time.values >= start_time)]
         if end_time:
-            ng = ng[(ng._time <= end_time)]
+            ng = ng[(ng._time.values <= end_time)]
         
         #calculate dt and remove records with time step greater than 
         # 0.1 seconds 
@@ -149,10 +150,10 @@ class VTAnalytics:
         ai['_lane'] = 8 - ai['laneIndex']
 
         if start_time:
-            ai = ai[ai._time >= start_time]
+            ai = ai[ai._time.values >= start_time]
 
         if end_time:
-            ai = ai[ai._time <= end_time]
+            ai = ai[ai._time.values <= end_time]
 
         #calculate the time step 
         ai = ai.sort_values(['_vid', '_time']) 
@@ -399,8 +400,8 @@ class VTAnalytics:
         
         #select the trajectories to plot based on inputs 
         tmp = self.df[self.df._lane == lane]
-        tmp = tmp[tmp._time >= start_time]
-        tmp = tmp[tmp._time <= end_time]
+        tmp = tmp[tmp._time.values >= start_time]
+        tmp = tmp[tmp._time.values <= end_time]
         tmp = tmp[tmp._locy >= start_dist]
         tmp = tmp[tmp._locy <= end_dist]
       
