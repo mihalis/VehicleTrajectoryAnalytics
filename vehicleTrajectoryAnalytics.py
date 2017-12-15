@@ -17,6 +17,59 @@ import pdb
 
 #FIG_SIZE_X,FIG_SIZE_Y = 15, 10
 
+from reportlab.pdfgen import canvas 
+
+from reportlab.lib.pagesizes import letter, A4
+
+
+class PdfReport(object):
+
+    def __init__(self, outFileName, pagesize):
+        
+        self._outFileName = outFileName
+        self._canvas = canvas.Canvas(outFileName, pagesize=pagesize)
+        self._counter = 0
+
+    def addChart(self, chart):
+        
+        self._counter += 1 
+
+        figure = chart 
+        figure.savefig("tmpFigure%d.png" % self._counter)
+        #image = open("tmpFigure%d.png" %d, "rb").read()
+
+        #im = Image.fromstring(image)
+        #im = Image.open("tmpFigure%d.png" % self._counter)
+        
+        self._canvas.drawImage("tmpFigure%d.png" % self._counter, 0, 0)        
+
+        os.remove("tmpFigure%d.png" % self._counter) 
+
+        self._canvas.bookmarkPage(str(self._counter))
+        self._canvas.addOutlineEntry(chart.getTitle(), str(self._counter), 0, 0)
+        self._canvas.showPage()
+
+    def addChart2(self, fileName, title):
+        
+        self._counter += 1 
+        
+        self._canvas.drawImage(fileName, 0, 0)        
+
+        self._canvas.bookmarkPage(str(self._counter))
+        self._canvas.addOutlineEntry(title, str(self._counter), 0, 0)
+        self._canvas.showPage()
+        
+        
+    def write(self):
+        
+        self._canvas.save()
+
+#    def __del__(self):
+#
+#        for i in range(self._counter):
+#            os.remove("tmpFigure%d.png" % (i + 1)) 
+
+
 class VTAnalytics:
 
 
@@ -217,7 +270,7 @@ class VTAnalytics:
 
         self.time_step = self.df._dt.dropna().unique()[0]
 
-    def calculateAccelerationJerk(self):
+    def getAccelerationJerk(self):
         """returns a new dataset with jerk values for a time step of 1 second"""
         
         df = self.df.sort_values(['_vid', '_time'])
@@ -285,12 +338,21 @@ class VTAnalytics:
         ax.grid(b=True, which='major', color='white', lw=2)
         ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
         
-        return np.histogram(df._spd, bins=bins) 
+        hist, bins = np.histogram(df._jerk, 
+                        bins=bins)
+        jerk_freq = pd.DataFrame(index=bins[:-1], data=hist, columns=['freq'])
+        labels = ["%.1f" % ((i+j)/2) for i,j in zip(bins[:], bins[1:])]
+        jerk_freq.index = labels
+
+        jerk_freq['Percentage'] = jerk_freq['freq'] / df.shape[0] * 100
+        jerk_freq.index.name = 'bin center'
+
+        return jerk_freq 
 
     def getJerkDistribution(self, df):
         
-        bins_ = np.arange(np.floor(df._jerk.min()),
-                         np.ceil(df._jerk.max()), 1)
+        bins_ = np.arange(np.floor(self.df._jerk.min()),
+                         np.ceil(self.df._jerk.max()), 1)
         
         hist, bins = np.histogram(df._jerk, 
                 bins=bins_)
@@ -308,8 +370,8 @@ class VTAnalytics:
         """Calculates ARMS for each speed bin"""
         result = [] 
 
-        speedBins = np.array(df._spd, np.int) // speedbin * speedbin 
-        for sbin, group in df.groupby(speedBins):
+        speedBins = np.array(self.df._spd, np.int) // speedbin * speedbin 
+        for sbin, group in self.df.groupby(speedBins):
 
             arms = np.sqrt(np.sum(group._acc.dropna().values ** 2) / group.shape[0]) * 0.303
 
@@ -325,6 +387,7 @@ class VTAnalytics:
             
         ax.set_ylabel('Acceleration Root Mean Squared', fontsize=18)
         ax.set_xlabel("Speed (mph)", fontsize=18)
+        ax.set_title("ARMS", fontsize=18)
 
     def getAccelerationDistribution(self, step):
         """Return a table of the acceleration distribution of the given time step
@@ -341,7 +404,7 @@ class VTAnalytics:
         return acc_freq 
 
     def plotAllTrajectories(self, fig, ax, lane, start_time, 
-                         end_time, start_dist, end_dist, point_size=0.5):
+                         end_time, start_dist, end_dist, point_size=0.5, title=""):
 
         """This function plots all the vehicle trajectories for a given lane, start, and end time and for 
         a particular section along the corridor identified by the start and end distance. 
@@ -440,6 +503,9 @@ class VTAnalytics:
         ax.set_xlim([times.min(), times.max()])
         ax.set_ylim([locations.min(), locations.max()])
         
+        if title:
+            ax.set_title(title)
+        
         cmax = fig.add_axes([0.96, 0.1, 0.02, 0.8])
         mpl.colorbar.ColorbarBase(ax=cmax, cmap=cmap, norm=norm, boundaries=bounds) 
 
@@ -478,7 +544,7 @@ class VTAnalytics:
         
         return df_hm 
 
-    def plotMeanCorridorSpeedDistribtution(self,df, ax):
+    def plotMeanCorridorSpeedDistribution(self,df, ax):
         """
         '_vid', 'start', 'startDist', 'end', 'endDist', 'dur', 'dist', 'speed'], dtype='object'
         """
@@ -519,11 +585,11 @@ class VTAnalytics:
         
         return cor_times 
 
-    def getSpeedDistribution(self, ax):
+    def plotSpeedDistribution(self, ax):
         
-        bins = np.arange(np.floor(df._spd.min()), np.ceil(df._spd.max()), 1)
+        bins = np.arange(np.floor(self.df._spd.min()), np.ceil(self.df._spd.max()), 1)
         
-        ax.hist(df._spd, bins=bins, color='blue', histtype='step', linewidth=2) 
+        ax.hist(self.df._spd, bins=bins, color='blue', histtype='step', linewidth=2) 
         
         minor_locator = matplotlib.ticker.AutoMinorLocator(10)
         ax.xaxis.set_minor_locator(minor_locator)
@@ -535,13 +601,20 @@ class VTAnalytics:
         ax.grid(b=True, which='major', color='white', lw=2)
         ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
         
-        return np.histogram(df._spd, bins=bins)
+        freq, bins2 = np.histogram(self.df._spd, bins=bins)
 
-    def getAccelerationDistribution(self):
+        spdFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
+                              in zip(bins, bins2[1:])],
+                       data=freq, columns=['Freq'])
+        spdFreq.index.name='bin'
+        return spdFreq
+
+
+    def plotAccelerationDistribution(self, ax):
         
-        bins = np.arange(np.floor(df._acc.min()) - 0.5, np.ceil(df._acc.max()) + 0.5, 1)
+        bins = np.arange(np.floor(self.df._acc.min()) - 0.5, np.ceil(self.df._acc.max()) + 0.5, 1)
         
-        ax.hist(df._acc, bins=bins, color='blue', histtype='step', linewidth=2) 
+        ax.hist(self.df._acc, bins=bins, color='blue', histtype='step', linewidth=2) 
         
         ax.set_title("Distribution of Acceleration", fontsize=18)
         ax.set_xlabel("Acceleration(fpss)", fontsize=18)
@@ -552,6 +625,14 @@ class VTAnalytics:
         
         ax.grid(b=True, which='major', color='white', lw=2)
         ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
+
+        freq, bins2 = np.histogram(self.df._acc, bins=bins)
+
+        accFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
+                              in zip(bins, bins2[1:])],
+                       data=freq, columns=['Freq'])
+        accFreq.index.name='bin'
+        return accFreq
     
     def recalculateMacroVars(self, space_bin, time_bin):
 
@@ -703,6 +784,8 @@ class VTAnalytics:
         if show_bin_info:
             fig.text(0.85, 0.65, "SpaceBin:%dft\nTimeBin:%dsec" % (self.space_bin, self.time_bin), fontsize=18)
 
+        ax.set_title("SpeedVsDensity")
+
         fig.tight_layout()
 
     def plotSpeedVsDensityByLane(self, fig, dot_color='blue', mean_color='white', 
@@ -756,7 +839,11 @@ class VTAnalytics:
         axes[-2].set_xlabel("Density (vpm)", fontsize=18)
         axes[-1].set_xlabel("Density (vpm)", fontsize=18)
 
+
+        fig.suptitle("SpeedVsDensityByLane", fontsize=18)
+
         fig.tight_layout(pad=1.0, w_pad=0.5, h_pad=1.0)
+
         fig.text(0.72, 0.13, "SpaceBin:%dft\nTimeBin:%dsec" % (self.space_bin, self.time_bin), fontsize=18)
 
     def getNumOfLaneChangesPerLane(self):
@@ -849,6 +936,125 @@ class VTAnalytics:
         fig.text(0.908, 0.15, "No data", fontsize=16)
 
 
+class Directory:
+
+    pass 
+
+    def __init__(self):
+
+        pass 
+
+
+class Results:
+
+    def __init__(self):
+
+        pass 
+
+    def execute(self):
+
+        start_time = np.datetime64('2005-04-13 17:00:00')
+        end_time   = np.datetime64('2005-04-13 17:30:00')
+
+        print('reading the data')
+        fileName = "./data/ngsimI80trajectories 0500-0530.txt"
+
+        self._outputDir = Directory()
+
+        self._outputDir.value = './results'
+
+        #self.vt = VTAnalytics.readNGISIMData(fileName, 
+        #    start_time=start_time, 
+        #    end_time=end_time)
+
+
+        self.vt = VTAnalytics.readModelData("./data/ai21.hdf",
+                              start_time=start_time, end_time=end_time)
+
+        self.data = self.vt.df 
+        
+        print('done reading the data')
+
+        writer = pd.ExcelWriter(os.path.join(self._outputDir.value, 'tables.xlsx'))
+
+        PAGE_SIZE = (1000, 792.0)
+        pdfReport = PdfReport(os.path.join(self._outputDir.value, 'report.pdf'), PAGE_SIZE)
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotSpeedVsDensity(fig, ax, max_density=280)        
+        fig.savefig(os.path.join(self._outputDir.value, "SpeedVsDensity.png"), dpi=100)
+        pdfReport.addChart2(os.path.join(self._outputDir.value, "SpeedVsDensity.png"), 'SpeedVsDensity')
+
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotLCR(fig, laneChangeType='enter')
+        fig.savefig(os.path.join(self._outputDir.value, "LCR.png"), dpi=100)
+        pdfReport.addChart2(os.path.join(self._outputDir.value, "LCR.png"), "LaneChangeRate")
+
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotSpeedVsDensityByLane(fig, plot_mean=True, dot_color='blue', alpha=0.4)
+        out_fileName = os.path.join(self._outputDir.value, "SpeedVsDensityByLane.png")
+        fig.savefig(out_fileName,dpi=100)
+        pdfReport.addChart2(out_fileName, "SpeedVsDensityByLane")
+
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        spdDist = self.vt.plotSpeedDistribution(ax)
+        out_fileName = os.path.join(self._outputDir.value, "SpeedDistribution.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "SpeedDistribution")
+        spdDist.to_excel(writer,'SpeedDistribution')
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        accDist = self.vt.plotAccelerationDistribution(ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationDistribution.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationDistribution")
+        accDist.to_excel(writer,'AcclerationDistribution')
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        jerk = self.vt.getAccelerationJerk()
+        jerkDist = self.vt.plotJerkDistribution(jerk, ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationJerkDistribution.png")
+        fig.savefig(out_fileName ,dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationJerkDistribution")
+        jerkDist.to_excel(writer,'JerkDistribution')
+
+
+        armsDist = self.vt.getARMSDistribution()
+        fig, ax = plt.subplots(figsize=(10,8))
+        self.vt.plotARMS(armsDist, ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationRootMeanSquareError.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationRootMeanSquareError")
+        armsDist.to_excel(writer,'ARMS')
+
+        writer.save()
+
+        for i in range(1,8):
+            fig, ax = plt.subplots(figsize=(10,8),dpi=100)
+            self.vt.plotAllTrajectories(fig, ax, i, np.datetime64('2005-04-13 17:00:00'), 
+                             np.datetime64('2005-04-13 17:10:00'), 0, 1000, point_size=0.5, title="All trajectories for lane %d" % i)
+            out_fileName = os.path.join(self._outputDir.value, "All_trajectories_lane_%d.png" % i)
+            fig.savefig(out_fileName, dpi=100)
+            pdfReport.addChart2(out_fileName, "All trajectories for lane %d" % i)
+
+
+        pdfReport.write()
+
+        file_list = [os.path.join(self._outputDir.value, "graph%d.pdf" % i)
+                          for i in range(1,5)]
+
+
+        print('done')
+
+if __name__ == "__main__":
+
+
+    r = Results()
+
+    r.execute() 
 
 
 #http://matplotlib.org/sampledoc/index.html

@@ -18,7 +18,7 @@ import os
 
 from PyPDF2 import PdfFileReader, PdfFileWriter
 
-from vehicleTrajectoryAnalytics import VTAnalytics
+from vehicleTrajectoryAnalytics import VTAnalytics, PdfReport
 
 start_time = np.datetime64('2005-04-13 17:00:00')
 end_time   = np.datetime64('2005-04-13 17:30:00')
@@ -86,7 +86,7 @@ class VehTrajAnalytics(BaseWidget):
                    '_positionX', "_positionY", "_distanceAlong"], "=", 
                           {
                             'All Vehicle Trajectories':['_lane', '_vLength'], 
-                            'InstrumentedVehicleTrajectories': ['_radarAngle', '_radarRange']
+                            'Instrumented Vehicle Trajectories': ['_radarAngle', '_radarRange']
                           },
                           '=',('_outputDir', '_save') ]
 
@@ -119,6 +119,78 @@ class VehTrajAnalytics(BaseWidget):
         self.__initializeBoxes2(columns)
 
     def __saveAction(self):
+
+        print('done reading the data')
+
+        writer = pd.ExcelWriter(os.path.join(self._outputDir.value, 'tables.xlsx'))
+
+        PAGE_SIZE = (1000, 792.0)
+        pdfReport = PdfReport(os.path.join(self._outputDir.value, 'report.pdf'), PAGE_SIZE)
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotSpeedVsDensity(fig, ax, max_density=280)        
+        fig.savefig(os.path.join(self._outputDir.value, "SpeedVsDensity.png"), dpi=100)
+        pdfReport.addChart2(os.path.join(self._outputDir.value, "SpeedVsDensity.png"), 'SpeedVsDensity')
+
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotLCR(fig, laneChangeType='enter')
+        fig.savefig(os.path.join(self._outputDir.value, "LCR.png"), dpi=100)
+        pdfReport.addChart2(os.path.join(self._outputDir.value, "LCR.png"), "LaneChangeRate")
+
+
+        fig, ax = plt.subplots(figsize=(10,8), dpi=100)
+        self.vt.plotSpeedVsDensityByLane(fig, plot_mean=True, dot_color='blue', alpha=0.4)
+        out_fileName = os.path.join(self._outputDir.value, "SpeedVsDensityByLane.png")
+        fig.savefig(out_fileName,dpi=100)
+        pdfReport.addChart2(out_fileName, "SpeedVsDensityByLane")
+
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        spdDist = self.vt.plotSpeedDistribution(ax)
+        out_fileName = os.path.join(self._outputDir.value, "SpeedDistribution.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "SpeedDistribution")
+        spdDist.to_excel(writer,'SpeedDistribution')
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        accDist = self.vt.plotAccelerationDistribution(ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationDistribution.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationDistribution")
+        accDist.to_excel(writer,'AcclerationDistribution')
+
+        fig, ax = plt.subplots(figsize=(10,8))
+        jerk = self.vt.getAccelerationJerk()
+        jerkDist = self.vt.plotJerkDistribution(jerk, ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationJerkDistribution.png")
+        fig.savefig(out_fileName ,dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationJerkDistribution")
+        jerkDist.to_excel(writer,'JerkDistribution')
+
+
+        armsDist = self.vt.getARMSDistribution()
+        fig, ax = plt.subplots(figsize=(10,8))
+        self.vt.plotARMS(armsDist, ax)
+        out_fileName = os.path.join(self._outputDir.value, "AccelerationRootMeanSquareError.png")
+        fig.savefig(out_fileName, dpi=100)
+        pdfReport.addChart2(out_fileName, "AccelerationRootMeanSquareError")
+        armsDist.to_excel(writer,'ARMS')
+
+        writer.save()
+
+        for i in range(1,8):
+            fig, ax = plt.subplots(figsize=(10,8),dpi=100)
+            self.vt.plotAllTrajectories(fig, ax, i, np.datetime64('2005-04-13 17:00:00'), 
+                             np.datetime64('2005-04-13 17:10:00'), 0, 1000, point_size=0.5, title="All trajectories for lane %d" % i)
+            out_fileName = os.path.join(self._outputDir.value, "All_trajectories_lane_%d.png" % i)
+            fig.savefig(out_fileName, dpi=100)
+            pdfReport.addChart2(out_fileName, "All trajectories for lane %d" % i)
+
+
+        pdfReport.write()
+
+    def __saveActionOLD(self):
 
 
         fig, ax = plt.subplots(figsize=(10,8))
