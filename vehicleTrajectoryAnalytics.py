@@ -121,18 +121,18 @@ class VTAnalytics:
                          header=None, names=colNames, delim_whitespace=True)
 
         # define app specific variables 
-        ng['_spd']  = ng.vehSpeed * 3600 / 5280  # _spd in miles per hour 
-        ng['_acc']  = ng.vehAcceleration         # _acc is in feet per second squared 
+        #ng['_spd']  = ng.vehSpeed * 3600 / 5280  # _spd in miles per hour 
+        #ng['_acc']  = ng.vehAcceleration         # _acc is in feet per second squared 
         ng['_locy'] = ng.locY  #location along the Y axis in feet 
         ng['_vlen'] = ng.vehLength # vehicle length in feet  
         ng['_lane'] = ng.lane 
 
         #create a datetime variable 
-        result = [] 
-        for t in ng.GlobalTime.values: 
-            t = np.datetime64(int(t),'ms') - np.timedelta64(7,'h')
-            result.append(t)
-        ng['_time'] = result
+        #result = [] 
+        #for t in ng.GlobalTime.values: 
+        #    t = np.datetime64(int(t),'ms') - np.timedelta64(7,'h')
+        #    result.append(t)
+        ng['_time'] = ng.GlobalTime / 1000 #convert the time into seconds 
 
         #create a new vehicle id because the one defined in the
         #raw data is wrong 
@@ -147,7 +147,6 @@ class VTAnalytics:
         ng = ng.merge(newVehID, on=['VehID', 'TotalFrames', 'vehLength'])
         
         #limit the dataset based on the input times 
-        #pdb.set_trace()
         if start_time: 
             ng  = ng[(ng._time.values >= start_time)]
         if end_time:
@@ -160,13 +159,21 @@ class VTAnalytics:
         ng.index = np.arange(ng.shape[0])
 
         ng['_dt'] = ng._time.shift(-1) - ng._time
-        #there are some records with dt greater than the 0.1 don't know why 
         ng.loc[ng._vid != ng._vid.shift(-1), '_dt'] = np.nan
 
+        #there are some records with dt greater than the 0.1 don't know why 
         if ng._dt.unique().shape[0] > 2:
-            raise ValueError("The dataset has more than one timestep") 
+            print ("Error: the dataset has more than one timestep")
+            #raise ValueError("The dataset has more than one timestep") 
 
         time_step = ng._dt.dropna().unique()[0]
+
+        #calculate speed and acceleration 
+        ng['_spd'] = (ng['_locy'].shift(-1) - ng['_locy']) / ng['_dt'] 
+        ng['_acc'] = (ng['_spd'].shift(-1) - ng['_spd']) / ng['_dt']  #fpss 
+        ng['_spd'] = ng['_spd'] * (3600 / 5280) # mph 
+
+        ng = ng.dropna() 
 
         #define lane changes 
 
@@ -178,12 +185,27 @@ class VTAnalytics:
         ng.loc[ng._lane != ng._lane.shift(1), '_enterLane'] = 1
         ng.loc[ng._vid  != ng._vid.shift(1), '_enterLane'] = 0
 
-        #recalculate the preceding and following vehicle ids 
-        ng = ng.sort_values(['lane', '_time', 'locY'], ascending=[True, True, True])
+
+        ng = ng.sort_values(['_lane', '_time', 'locY'], ascending=[True, True, True])
         ng.index = np.arange(ng.shape[0])
 
+        #calculate Time to collision 
+        ng['_gap'] = np.nan 
+        ng['_gap'] = ng._locy.shift(-1) - ng._locy - ng._vlen.shift(-1) 
+        ng.loc[ng._lane != ng._lane.shift(-1), '_gap']   =  np.nan 
+        ng.loc[ng._time != ng._time.shift(-1), '_gap'] =  np.nan 
+
+        ng['_ttc'] = 0 
+        ng['_ttc'] = ng._gap / (ng._spd.shift(-1) - ng._spd) * (5280 / 3600)
+        ng.loc[ng._time != ng._time.shift(-1), '_ttc'] = np.nan 
+        ng.loc[ng._ttc < 0, '_ttc'] = np.nan
+        ng.loc[ng._ttc == np.inf, '_ttc'] = np.nan
+
+
+        #recalculate the preceding and following vehicle ids 
         ng['_prV'] = ng._vid.shift(-1)
-        ng.loc[ng.lane != ng.lane.shift(-1), '_prV'] =  np.nan 
+
+        ng.loc[ng.lane != ng.lane.shift(-1), '_prV']   =  np.nan 
         ng.loc[ng._time != ng._time.shift(-1), '_prV'] =  np.nan 
 
         ng['_flV'] = ng._vid.shift(1)
@@ -239,7 +261,6 @@ class VTAnalytics:
 
         return VTAnalytics(ai)
 
-
     def __init__(self, df, space_bin=50, time_bin=10):
 
         assert '_spd' in df.columns
@@ -266,34 +287,10 @@ class VTAnalytics:
         self.df.loc[self.df._vid != self.df._vid.shift(-1), '_dt'] = np.nan
 
         if self.df._dt.unique().shape[0] > 2:
-            raise ValueError("The dataset has more than one timestep") 
+            print("ERROR: The dataset has more than one time step")
+            #raise ValueError("The dataset has more than one timestep") 
 
         self.time_step = self.df._dt.dropna().unique()[0]
-
-    def getAccelerationJerk(self):
-        """returns a new dataset with jerk values for a time step of 1 second"""
-        
-        df = self.df.sort_values(['_vid', '_time'])
-
-        result = [] 
-        for VehId, group in df.groupby('_vid'):
-
-            tmp2 = (group[['_time', '_acc', '_spd',  '_locy']]
-                   .set_index('_time')
-                   .resample('1s')
-                   .mean()
-                   .reset_index()
-                   )
-
-            tmp2['_vid'] = VehId
-
-            tmp2['_jerk'] = tmp2._acc.shift(-1) - tmp2._acc
-            result.append(tmp2)
-
-        df1s = pd.concat(result)
-        df1s = df1s.dropna()
-        
-        return df1s 
 
     def resample(self, timeStep):
         """returns a new dataset with resampled speed, acceleration, and location along 
@@ -319,11 +316,136 @@ class VTAnalytics:
         
         return df1s 
 
+    def getTTCDistribution(self):
 
-    def plotJerkDistribution(self, df, ax):
+        hist, bins = np.histogram(self.df['_ttc'].dropna(), bins=np.arange(0, 16, 1))
+        TTC_freq = pd.DataFrame(index=bins[:-1], data=hist, columns=['freq'])
+        labels = ["%d <= TTC < %d" % (i, i+1) for i in bins[:-1]]
+        TTC_freq.index = labels
+        TTC_freq['ngRe_Percentage'] = TTC_freq['freq'] / self.df.shape[0] * 100
+
+        return TTC_freq
+
+    def calculateCorridorTravelTimes(self):
+        
+        self.df = self.df.sort_values(['_vid', '_time'])
+        tmp1 = (self.df.groupby('_vid')[['_time', '_locy']]
+                .first().reset_index()
+                .rename(columns={'_time':'start', '_locy':'startDist'}))
+        
+        tmp2 = (self.df.groupby('_vid')[['_time', '_locy']]
+                .last().reset_index()
+                .rename(columns={'_time':'end', '_locy':'endDist'}))
+        
+        cor_times = pd.merge(tmp1, tmp2, on=['_vid'])
+        
+        cor_times['dur'] = (cor_times.end - cor_times.start)
+        cor_times['dist'] = cor_times.endDist - cor_times.startDist 
+        cor_times['_spd'] = (cor_times.dist / 5280.0) / (cor_times.dur / 3600.0)
+        
+        return cor_times 
+
+    def plotSpeedDistribution(self, ax, lower=None, upper=None):
+
+        if not lower:
+            lower = np.floor(self.df._spd.min()) 
+        if not upper:
+            upper = np.ceil(self.df._spd.max()) 
+        
+        bins = np.arange(lower, upper)
+        
+        ax.hist(self.df._spd, bins=bins, color='blue', histtype='step', linewidth=2) 
+        
+        minor_locator = matplotlib.ticker.AutoMinorLocator(10)
+        ax.xaxis.set_minor_locator(minor_locator)
+        
+        ax.set_title("Distribution of Speed", fontsize=18)
+        ax.set_xlabel("Speed(mph)", fontsize=18)
+        ax.set_ylabel("Frequency", fontsize=18)
+        
+        ax.grid(b=True, which='major', color='white', lw=2)
+        ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
+        
+        freq, bins2 = np.histogram(self.df._spd, bins=bins)
+
+        spdFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
+                              in zip(bins, bins2[1:])],
+                       data=freq, columns=['Freq'])
+        spdFreq.index.name='bin'
+        return spdFreq
+
+    def plotAccelerationDistribution(self, ax, lower=None, upper=None):
+        
+        if not lower:
+            lower = np.floor(self.df._acc.min()) - 0.5
+        if not upper:
+            upper = np.ceil(self.df._acc.max()) + 0.5
+
+        bins = np.arange(lower, upper, 1)
+        
+        ax.hist(self.df._acc, bins=bins, color='blue', histtype='step', linewidth=2) 
+        
+        ax.set_title("Distribution of Acceleration", fontsize=18)
+        ax.set_xlabel("Acceleration(fpss)", fontsize=18)
+        ax.set_ylabel("Frequency", fontsize=18)
+        
+        minor_locator = matplotlib.ticker.AutoMinorLocator(5)
+        ax.xaxis.set_minor_locator(minor_locator)
+        
+        ax.grid(b=True, which='major', color='white', lw=2)
+        ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
+
+        freq, bins2 = np.histogram(self.df._acc, bins=bins)
+
+        accFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
+                              in zip(bins, bins2[1:])],
+                       data=freq, columns=['Freq'])
+        accFreq.index.name='bin'
+        return accFreq
+
+    def getAccelerationJerk(self):
+        """returns a new dataset with jerk values for a time step of 1 second"""
+        
+        self.df = self.df.sort_values(['_vid', '_time'])
+
+        result = [] 
+        for VehId, group in self.df.groupby('_vid'):
+
+            group2 = group[['_acc', '_spd',  '_locy']].copy() 
+
+            #create a datetime variable 
+            new_time = [] 
+            for t in group._time.values: 
+                t = np.datetime64(int(t *1000) ,'ms')
+                new_time.append(t)
+
+            group2['_time'] = new_time 
+
+            tmp2 = (group2.set_index('_time')
+                   .resample('1s')
+                   .mean()
+                   .reset_index()
+                   )
+
+            tmp2['_vid'] = VehId
+
+            tmp2['_jerk'] = tmp2._acc.shift(-1) - tmp2._acc
+            result.append(tmp2)
+
+        df1s = pd.concat(result)
+        self.df1s = df1s.dropna()
+        
+        return self.df1s 
+
+    def plotJerkDistribution(self, df, ax, lower=None, upper=None):
                 
-        bins = np.arange(np.floor(df._jerk.min()),
-                         np.ceil(df._jerk.max()), 1)
+        if not lower:
+            lower = np.floor(df._jerk.min()) 
+        if not upper:
+            upper = np.ceil(df._jerk.max()) 
+
+        bins = np.arange(lower,
+                         upper, 1)
         
         ax.hist(df._jerk, bins=bins, color='blue', 
                 histtype='step', linewidth=2) 
@@ -349,23 +471,6 @@ class VTAnalytics:
 
         return jerk_freq 
 
-    def getJerkDistribution(self, df):
-        
-        bins_ = np.arange(np.floor(self.df._jerk.min()),
-                         np.ceil(self.df._jerk.max()), 1)
-        
-        hist, bins = np.histogram(df._jerk, 
-                bins=bins_)
-
-        jerk_freq = pd.DataFrame(index=bins[:-1], data=hist, columns=['freq'])
-        labels = ["%.1f" % ((i+j)/2) for i,j in zip(bins[:], bins[1:])]
-        jerk_freq.index = labels
-
-        jerk_freq['Percentage'] = jerk_freq['freq'] / df.shape[0] * 100
-        jerk_freq.index.name = 'bin center'
-        
-        return jerk_freq 
-
     def getARMSDistribution(self, speedbin=5):
         """Calculates ARMS for each speed bin"""
         result = [] 
@@ -389,22 +494,7 @@ class VTAnalytics:
         ax.set_xlabel("Speed (mph)", fontsize=18)
         ax.set_title("ARMS", fontsize=18)
 
-    def getAccelerationDistribution(self, step):
-        """Return a table of the acceleration distribution of the given time step
-        """
-        
-        hist, bins = np.histogram(ng1s.vehAcceleration, np.arange(-21.5, 11.5, 1))
-        
-        acc_freq = pd.DataFrame(index=bins[:-1], data=hist, columns=['freq'])
-        labels = ["%.1f <= acc < %.1f" % (i, i+1) for i in bins[:-1]]
-        acc_freq.index = labels
-
-        acc_freq['Percentage'] = acc_freq['freq'] / ng1s.shape[0] * 100
-
-        return acc_freq 
-
-    def plotAllTrajectories(self, fig, ax, lane, start_time, 
-                         end_time, start_dist, end_dist, point_size=0.5, title=""):
+    def plotAllTrajectories(self, fig, ax, lane, start_time, end_time, start_dist, end_dist, point_size=0.5, title=""):
 
         """This function plots all the vehicle trajectories for a given lane, start, and end time and for 
         a particular section along the corridor identified by the start and end distance. 
@@ -482,11 +572,22 @@ class VTAnalytics:
         norm = mpl.colors.BoundaryNorm(bounds, cmap.N)
 
         #define the color of the points 
-        point_colors = tmp._spd.apply(lambda spd:colors2[int(spd // 10)]).values
+
+        point_colors = [] 
+        for spd in tmp._spd.values:
+
+            if spd < 80:
+                p_color = colors2[int(spd // 10)]
+            else:
+                p_color = colors2[-1]
+        point_colors.append(p_color)
+
+        #point_colors = tmp._spd.apply(lambda spd:colors2[int(spd // 10)]).values
         
         #x axis is the seconds from start time 
-        times = (tmp._time - start_time).dt.total_seconds().values
-        
+        #times = (tmp._time - start_time).dt.total_seconds().values
+        times = tmp._time - start_time
+
         #y axis is the location along the corridor
         locations = tmp._locy.values 
         
@@ -514,6 +615,7 @@ class VTAnalytics:
     
     def calculateSpaceMeanSpeedAndDensity(self, time_bin, space_bin):
         
+        raise Exeption() 
         """time_bin in seconds 
         space_bin in feet """
 
@@ -565,74 +667,6 @@ class VTAnalytics:
         ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
         
         return np.histogram(df._spd, bins=bins)
-
-    def calculateCorridorTravelTimes(self):
-        
-        df = df.sort_values(['_vid', '_time'])
-        tmp1 = (df.groupby('_vid')[['_time', '_locy']]
-                .first().reset_index()
-                .rename(columns={'_time':'start', '_locy':'startDist'}))
-        
-        tmp2 = (df.groupby('_vid')[['_time', '_locy']]
-                .last().reset_index()
-                .rename(columns={'_time':'end', '_locy':'endDist'}))
-        
-        cor_times = pd.merge(tmp1, tmp2, on=['_vid'])
-        
-        cor_times['dur'] = (cor_times.end - cor_times.start).dt.total_seconds() 
-        cor_times['dist'] = cor_times.endDist - cor_times.startDist 
-        cor_times['_spd'] = (cor_times.dist / 5280.0) / (cor_times.dur / 3600.0)
-        
-        return cor_times 
-
-    def plotSpeedDistribution(self, ax):
-        
-        bins = np.arange(np.floor(self.df._spd.min()), np.ceil(self.df._spd.max()), 1)
-        
-        ax.hist(self.df._spd, bins=bins, color='blue', histtype='step', linewidth=2) 
-        
-        minor_locator = matplotlib.ticker.AutoMinorLocator(10)
-        ax.xaxis.set_minor_locator(minor_locator)
-        
-        ax.set_title("Distribution of Speed", fontsize=18)
-        ax.set_xlabel("Speed(mph)", fontsize=18)
-        ax.set_ylabel("Frequency", fontsize=18)
-        
-        ax.grid(b=True, which='major', color='white', lw=2)
-        ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
-        
-        freq, bins2 = np.histogram(self.df._spd, bins=bins)
-
-        spdFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
-                              in zip(bins, bins2[1:])],
-                       data=freq, columns=['Freq'])
-        spdFreq.index.name='bin'
-        return spdFreq
-
-
-    def plotAccelerationDistribution(self, ax):
-        
-        bins = np.arange(np.floor(self.df._acc.min()) - 0.5, np.ceil(self.df._acc.max()) + 0.5, 1)
-        
-        ax.hist(self.df._acc, bins=bins, color='blue', histtype='step', linewidth=2) 
-        
-        ax.set_title("Distribution of Acceleration", fontsize=18)
-        ax.set_xlabel("Acceleration(fpss)", fontsize=18)
-        ax.set_ylabel("Frequency", fontsize=18)
-        
-        minor_locator = matplotlib.ticker.AutoMinorLocator(5)
-        ax.xaxis.set_minor_locator(minor_locator)
-        
-        ax.grid(b=True, which='major', color='white', lw=2)
-        ax.grid(b=True, which='minor', color='white', lw=0.5, alpha=1.0)
-
-        freq, bins2 = np.histogram(self.df._acc, bins=bins)
-
-        accFreq = pd.DataFrame(index=['%d-%d' % (i, j) for (i,j) 
-                              in zip(bins, bins2[1:])],
-                       data=freq, columns=['Freq'])
-        accFreq.index.name='bin'
-        return accFreq
     
     def recalculateMacroVars(self, space_bin, time_bin):
 
@@ -752,8 +786,7 @@ class VTAnalytics:
             
             ax.scatter(times, locations, c=point_colors, s=1)
 
-    def plotSpeedVsDensity(self, fig, ax, speed_step=5, color='blue', max_density=250, 
-             max_speed=70, show_bin_info=True, plot_mean=True):
+    def plotSpeedVsDensity(self, fig, ax, speed_step=5, color='blue', max_density=250, max_speed=70, show_bin_info=True, plot_mean=True):
 
         points = ax.scatter(self.df_macro.density, self.df_macro.speed, 
              s=1, color=color, label=None)
@@ -788,11 +821,7 @@ class VTAnalytics:
 
         fig.tight_layout()
 
-    def plotSpeedVsDensityByLane(self, fig, dot_color='blue', mean_color='white', 
-                                   plot_mean=True, max_density=250, max_speed=70, 
-                                   pad=1.0, w_pad=0.5, h_pad=1.0, alpha=0.5):
-
-
+    def plotSpeedVsDensityByLane(self, fig, dot_color='blue', mean_color='white', plot_mean=True, max_density=250, max_speed=70, pad=1.0, w_pad=0.5, h_pad=1.0, alpha=0.5):
 
         numLanes = self.df._lane.max() 
 
@@ -934,6 +963,7 @@ class VTAnalytics:
                   (self.space_bin, self.time_bin), fontsize=16)
 
         fig.text(0.908, 0.15, "No data", fontsize=16)
+
 
 
 class Directory:
